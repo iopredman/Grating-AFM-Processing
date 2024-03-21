@@ -52,18 +52,30 @@ def trenchlocator(profile, peaks, pillaraccuracy = 0.9): #pass output of peak lo
     trench = min(profile[0:peaks[0]])
     trenches.append(list(profile).index(trench))
     i = 0
-    while i < len(peaks):
-        try:
-            trench = min(profile[peaks[i]:peaks[i+1]])
-            trenches.append(list(profile).index(trench))
-            i+=1
-        except:
-            previousperiod = peaks[i] - peaks[i-1]
-            trench = min(profile[peaks[i]:(peaks[i]+int(previousperiod*pillaraccuracy))])
-            trenches.append(list(profile).index(trench))
-            break
+    if npillars == 1:
+        while i < len(peaks):
+            try:
+                trench = min(profile[peaks[i]:peaks[i+1]])
+                trenches.append(list(profile).index(trench))
+                i+=1
+            except:
+                previousperiod = periodpixellength #this is an explicit change from the generic program necessary for mono pillar measurement
+                trench = min(profile[peaks[i]:(peaks[i]+int(previousperiod*pillaraccuracy))])
+                trenches.append(list(profile).index(trench))
+                break
+    else:
+        while i < len(peaks):
+            try:
+                trench = min(profile[peaks[i]:peaks[i+1]])
+                trenches.append(list(profile).index(trench))
+                i+=1
+            except:
+                previousperiod = peaks[i] - peaks[i-1]
+                trench = min(profile[peaks[i]:(peaks[i]+int(previousperiod*pillaraccuracy))])
+                trenches.append(list(profile).index(trench))
+                break
     if len(trenches) > npillars + 1:
-        raise Exception("Too Many Trenches")
+            raise Exception("Too Many Trenches")
     return trenches
 
 def trenchpillarcombiner(profile):
@@ -94,21 +106,24 @@ def fixzero1D(profile): #<- Pass 1D list
     return profile
 
 def fixzero2D(profile): #<- Pass 2D SPM Profile
-    minimums = []
-    for i in range(len(profile.pixels)):
-        minimum = min(profile.pixels[i])
-        minimums.append(minimum)
-    minimum = min(minimums)
-    difference = 0 - minimum
-    profile = list(profile.pixels)
-    for i in range(len(profile)):
-        profile[i] = list(map(lambda n: n + difference, profile[i]))
+    minimum = np.min(profile.pixels)
+    with np.nditer(profile.pixels, op_flags=['readwrite']) as it:
+        for x in it:
+            x[...] = x - minimum
     return profile
 
-def averageprofile(profile): #function to take average profile of lines in an spm
+def averageprofile(profile, outputerror = False): #function to take average profile of lines in an spm
+    oneDprofile = profile.mean(axis = 0)
+    oneDerror = profile.std(axis = 0)
+    if outputerror:
+        return (oneDprofile, oneDerror)
+    else:
+        return oneDprofile
+    '''
     ix = 0
     jy = 0
     averageprofilelist = []
+    errorlist = []
     while ix < len(profile[0]):
         sum = 0
         jy = 0
@@ -119,6 +134,7 @@ def averageprofile(profile): #function to take average profile of lines in an sp
         averageprofilelist.append(average)
         ix += 1
     return averageprofilelist
+    '''
 
 def derivativeprofile(profile, n=3): #function that takes the average profile (one line) and returns the derivative, calculated n points away
     derivativelist = []
@@ -197,17 +213,17 @@ if __name__ == "__main__":
 
             #Section to plot 2D profile, comment out if not using
             fig,ax = plt.subplots()
-            ax.imshow(topoE)
+            ax.imshow(topoE.pixels)
             plt.savefig(f'{filename.split('.')[0]} {filename.split('.')[1]}.png')
             mpl.pyplot.close()
 
             #Section to modify average profile
-            averageprofilelist = averageprofile(topoE)
-            averageprofilelist = fixzero1D(averageprofilelist)
+            averageprofileoutput = averageprofile(topoE.pixels, outputerror = True)
+            averageprofilelist = fixzero1D(averageprofileoutput[0])
             derivativeprofilelist = derivativeprofile(averageprofilelist)
 
             #Section to plot average profile, comment out if not using
-            x = np.linspace(0,len(topoE[0]),len(topoE[0]))
+            x = np.linspace(0,len(topoE.pixels[0]),len(topoE.pixels[0]))
             y = list(averageprofilelist)
             fig,ax  = plt.subplots()
             ax.plot(x, y, linewidth=2.0)
@@ -215,13 +231,14 @@ if __name__ == "__main__":
             mpl.pyplot.close()
 
             #Section to write average profile to excel
-            df = pd.DataFrame(averageprofilelist)
+            df = pd.DataFrame(
+                {'Average Height (nm)': averageprofilelist, 'standard deviation': averageprofileoutput[1]})
             writer = pd.ExcelWriter(f"{filename}.xlsx", engine='xlsxwriter')
             df.to_excel(writer, sheet_name= "average profile", index=False)
             writer._save()
 
             #Section to calculate important quantities
-            l = averageprofilelist
+            l = list(averageprofileoutput[0])
             d = derivativeprofilelist
             maxpillarheights.append(max(l) - min(l))
             importantpoints = trenchpillarcombiner(l)
