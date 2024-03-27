@@ -106,20 +106,18 @@ def fixzero1D(profile): #<- Pass 1D list
     return profile
 
 def fixzero2D(profile): #<- Pass 2D SPM Profile
-    minimum = np.min(profile.pixels)
-    with np.nditer(profile.pixels, op_flags=['readwrite']) as it:
-        for x in it:
-            x[...] = x - minimum
+    minimums = []
+    for i in range(len(profile.pixels)):
+        minimum = min(profile.pixels[i])
+        minimums.append(minimum)
+    minimum = min(minimums)
+    difference = 0 - minimum
+    profile = list(profile.pixels)
+    for i in range(len(profile)):
+        profile[i] = list(map(lambda n: n + difference, profile[i]))
     return profile
 
-def averageprofile(profile, outputerror = False): #function to take average profile of lines in an spm
-    oneDprofile = profile.mean(axis = 0)
-    oneDerror = profile.std(axis = 0)
-    if outputerror:
-        return (oneDprofile, oneDerror)
-    else:
-        return oneDprofile
-    '''
+def averageprofile(profile): #function to take average profile of lines in an spm
     ix = 0
     jy = 0
     averageprofilelist = []
@@ -134,7 +132,6 @@ def averageprofile(profile, outputerror = False): #function to take average prof
         averageprofilelist.append(average)
         ix += 1
     return averageprofilelist
-    '''
 
 def derivativeprofile(profile, n=3): #function that takes the average profile (one line) and returns the derivative, calculated n points away
     derivativelist = []
@@ -213,17 +210,17 @@ if __name__ == "__main__":
 
             #Section to plot 2D profile, comment out if not using
             fig,ax = plt.subplots()
-            ax.imshow(topoE.pixels)
+            ax.imshow(topoE)
             plt.savefig(f'{filename.split('.')[0]} {filename.split('.')[1]}.png')
             mpl.pyplot.close()
 
             #Section to modify average profile
-            averageprofileoutput = averageprofile(topoE.pixels, outputerror = True)
-            averageprofilelist = fixzero1D(averageprofileoutput[0])
+            averageprofilelist = averageprofile(topoE)
+            averageprofilelist = fixzero1D(averageprofilelist)
             derivativeprofilelist = derivativeprofile(averageprofilelist)
 
             #Section to plot average profile, comment out if not using
-            x = np.linspace(0,len(topoE.pixels[0]),len(topoE.pixels[0]))
+            x = np.linspace(0,len(topoE[0]),len(topoE[0]))
             y = list(averageprofilelist)
             fig,ax  = plt.subplots()
             ax.plot(x, y, linewidth=2.0)
@@ -231,14 +228,13 @@ if __name__ == "__main__":
             mpl.pyplot.close()
 
             #Section to write average profile to excel
-            df = pd.DataFrame(
-                {'Average Height (nm)': averageprofilelist, 'standard deviation': averageprofileoutput[1]})
+            df = pd.DataFrame(averageprofilelist)
             writer = pd.ExcelWriter(f"{filename}.xlsx", engine='xlsxwriter')
             df.to_excel(writer, sheet_name= "average profile", index=False)
             writer._save()
 
             #Section to calculate important quantities
-            l = list(averageprofileoutput[0])
+            l = averageprofilelist
             d = derivativeprofilelist
             maxpillarheights.append(max(l) - min(l))
             importantpoints = trenchpillarcombiner(l)
@@ -247,7 +243,7 @@ if __name__ == "__main__":
             i = 0
             while i < npillars*2:
                 pillarheights[i].append(abs(l[p[i+1]]-l[p[i]]))
-                pillardvangles[i].append(57.2958*m.atan(abs(max(d[p[i]:p[i+1]]))))
+                pillardvangles[i].append(57.2958*m.atan(max(abs(d[p[i]:p[i+1]]))))
                 pillarangles[i].append(wallanglecalc(l,p[i],p[i+1]))
                 if i % 2 == 0:
                     pillarwidths[int(i/2)].append(pillarwidthcalc(l, p[i], p[i+2]))
