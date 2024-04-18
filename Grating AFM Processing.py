@@ -15,7 +15,7 @@ directory = os.fsencode(directory_in_str)
 #globals
 lengthx = 2300 #<- length of line in nanometers
 npillars = 3 #<- number of pillars to look for in scan
-pixels = 512 #<- pixels in a horizontal line
+pixels = 1024 #<- pixels in a horizontal line
 period = 574.7 # <- period of grating in nm
 periodpixellength = int(pixels/lengthx*period)
 pixeltonmsf = lengthx/pixels
@@ -119,22 +119,7 @@ def averageprofile(profile, outputerror = False): #function to take average prof
         return (oneDprofile, oneDerror)
     else:
         return oneDprofile
-    '''
-    ix = 0
-    jy = 0
-    averageprofilelist = []
-    errorlist = []
-    while ix < len(profile[0]):
-        sum = 0
-        jy = 0
-        while jy < len(profile):
-            sum += profile[jy][ix]
-            jy += 1
-        average = sum / len(profile)
-        averageprofilelist.append(average)
-        ix += 1
-    return averageprofilelist
-    '''
+
 
 def derivativeprofile(profile, n=3): #function that takes the average profile (one line) and returns the derivative, calculated n points away
     derivativelist = []
@@ -191,6 +176,7 @@ if __name__ == "__main__":
     
     #pillarwidth
     pillarwidths = []
+    dutycycle = []
 
     i = 0
     while i<npillars*2:
@@ -199,6 +185,8 @@ if __name__ == "__main__":
         pillarangles.append([])
         if i % 2 == 0:
             pillarwidths.append([])
+        if i % 2 == 0:
+            dutycycle.append([])
         i += 1
 
     for file in os.listdir(directory):
@@ -253,6 +241,8 @@ if __name__ == "__main__":
                 pillarangles[i].append(wallanglecalc(l,p[i],p[i+1]))
                 if i % 2 == 0:
                     pillarwidths[int(i/2)].append(pillarwidthcalc(l, p[i], p[i+2]))
+                if i % 2 == 0:
+                    dutycycle[int(i/2)].append((pillarwidthcalc(l, p[i], p[i+2], height = 0.5))/period)
                 i += 1
 
             siteindexes.append(siteindex)
@@ -301,6 +291,13 @@ if __name__ == "__main__":
         if i % 2 == 0:
             pillarn = int(i/2 + 1)
             df[f'Pillar {pillarn} Width'] = pillarwidths[int(i/2)]
+        i += 1
+
+    i = 0
+    while i < npillars*2:
+        if i % 2 == 0:
+            pillarn = int(i/2 + 1)
+            df[f'Pillar {pillarn} Duty Cycle'] = dutycycle[int(i/2)]
         i += 1
 
     df.style
