@@ -13,8 +13,8 @@ directory_in_str = str(os.getcwd())
 directory = os.fsencode(directory_in_str)
 
 #globals
-lengthx = 2300 #<- length of line in nanometers
-npillars = 3 #<- number of pillars to look for in scan
+lengthx = 1000 #<- length of line in nanometers
+npillars = 1 #<- number of pillars to look for in scan
 pixels = 1024 #<- pixels in a horizontal line
 period = 574.7 # <- period of grating in nm
 periodpixellength = int(pixels/lengthx*period)
@@ -113,8 +113,8 @@ def fixzero2D(profile): #<- Pass 2D SPM Profile
     return profile
 
 def averageprofile(profile, outputerror = False): #function to take average profile of lines in an spm
-    oneDprofile = profile.mean(axis = 0)
-    oneDerror = profile.std(axis = 0)
+    oneDprofile = np.flip(profile.mean(axis = 0))
+    oneDerror = np.flip(profile.std(axis = 0))
     if outputerror:
         return (oneDprofile, oneDerror)
     else:
