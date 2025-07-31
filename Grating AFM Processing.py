@@ -22,88 +22,44 @@ periodpixellength = int(pixels/lengthx*period)
 pixeltonmsf = lengthx/pixels
 
 def removestreaks(profile):
-    correctedprofile = profile.filter_scars_removal(.7,inline=False)
-    return correctedprofile
+    return profile.filter_scars_removal(.7,inline=False)
 
-def pillarlocator(profile, npillars, pillaraccuracy = 0.9): #finds first minimum and then adds approximate period length number of times of expected pillars, firstpillaraccuracy parameters can be adjusted between 0 and 1 to avoid measuring incompleted pillars
-    scan1 = list(profile[0:int(pillaraccuracy*periodpixellength)])
-    scan1min = min(scan1)
-    scan1index = scan1.index(scan1min)
-    trenches = []
-    trenches.append(scan1index)
-    i = 1
-    while i < npillars+1:
-        nextindex = scan1index + periodpixellength*i
-        trenches.append(nextindex)
-        i+=1
-    return trenches
+def pillarlocator(profile, npillars, pillaraccuracy=0.9):
+    start = list(profile[:int(pillaraccuracy * periodpixellength)]).index(min(profile[:int(pillaraccuracy * periodpixellength)]))
+    return [start + periodpixellength * i for i in range(npillars + 1)]
 
-def peaklocator(profile, trenches): #pass output of pillar locator and overall profile to find maximum values within each region
-    pillars = []
-    i = 0
-    while i < len(trenches)-1:
-        pillar = max(profile[trenches[i]:trenches[i+1]])
-        pillarindex = list(profile).index(pillar)
-        pillars.append(pillarindex)
-        i+=1
-    return pillars
+def peaklocator(profile, trenches):
+    return [list(profile).index(max(profile[trenches[i]:trenches[i+1]])) for i in range(len(trenches) - 1)]
 
-def trenchlocator(profile, peaks, pillaraccuracy = 0.9): #pass output of peak locator to find true lowest trenches, as opposed to approximation of pillarlocator()
-    trenches = []
-    trench = min(profile[0:peaks[0]])
-    trenches.append(list(profile).index(trench))
-    i = 0
-    if npillars == 1:
-        while i < len(peaks):
-            try:
-                trench = min(profile[peaks[i]:peaks[i+1]])
-                trenches.append(list(profile).index(trench))
-                i+=1
-            except:
-                previousperiod = periodpixellength #this is an explicit change from the generic program necessary for mono pillar measurement
-                trench = min(profile[peaks[i]:(peaks[i]+int(previousperiod*pillaraccuracy))])
-                trenches.append(list(profile).index(trench))
-                break
-    else:
-        while i < len(peaks):
-            try:
-                trench = min(profile[peaks[i]:peaks[i+1]])
-                trenches.append(list(profile).index(trench))
-                i+=1
-            except:
-                previousperiod = peaks[i] - peaks[i-1]
-                trench = min(profile[peaks[i]:(peaks[i]+int(previousperiod*pillaraccuracy))])
-                trenches.append(list(profile).index(trench))
-                break
+def trenchlocator(profile, peaks, pillaraccuracy=0.9):
+    trenches = [list(profile).index(min(profile[:peaks[0]]))]
+    for i in range(len(peaks)):
+        try:
+            trench = min(profile[peaks[i]:peaks[i+1]])
+        except:
+            period = periodpixellength if npillars == 1 else peaks[i] - peaks[i-1]
+            trench = min(profile[peaks[i]:peaks[i] + int(period * pillaraccuracy)])
+        trenches.append(list(profile).index(trench))
+        if npillars == 1 or i == len(peaks) - 1:
+            break
     if len(trenches) > npillars + 1:
-            raise Exception("Too Many Trenches")
+        raise Exception("Too Many Trenches")
     return trenches
 
 def trenchpillarcombiner(profile):
     peaks = peaklocator(profile, pillarlocator(profile, npillars))
-    trenches = trenchlocator(profile, peaklocator(profile, pillarlocator(profile, npillars)))
-    combinedlist = peaks + trenches
-    combinedlist.sort()
-    return combinedlist
+    trenches = trenchlocator(profile, peaks)
+    return sorted(peaks + trenches)
 
-def flatten(profile, npillars, flatline1delta = 0, flatline2delta = 0): #<- Flatten through lines drawn through each trench
-    flatline1 = 0 + flatline1delta
-    flatline2 = len(profile.pixels)-1-flatline2delta
-    x1lines = trenchlocator(profile.pixels[flatline1], peaklocator(profile.pixels[flatline1], pillarlocator(profile.pixels[flatline1], npillars)))
-    x2lines = trenchlocator(profile.pixels[flatline2], peaklocator(profile.pixels[flatline2], pillarlocator(profile.pixels[flatline2], npillars)))
-    lines = []
-    i = 0
-    while i < len(x1lines):
-        line = [x1lines[i],0,x2lines[i],len(profile.pixels)-1]
-        lines.append(line)
-        i+=1
-    correctedprofile = profile.offset(lines)
-    return correctedprofile
+def flatten(profile, npillars, flatline1delta=0, flatline2delta=0):
+    flatline1, flatline2 = flatline1delta, len(profile.pixels) - 1 - flatline2delta
+    x1 = trenchlocator(profile.pixels[flatline1], peaklocator(profile.pixels[flatline1], pillarlocator(profile.pixels[flatline1], npillars)))
+    x2 = trenchlocator(profile.pixels[flatline2], peaklocator(profile.pixels[flatline2], pillarlocator(profile.pixels[flatline2], npillars)))
+    lines = [[x1[i], 0, x2[i], len(profile.pixels) - 1] for i in range(len(x1))]
+    return profile.offset(lines)
 
-def fixzero1D(profile): #<- Pass 1D list
-    minimum = min(profile)
-    profile = list(map(lambda n: n - minimum, profile))
-    return profile
+def fixzero1D(profile): #<- Pass 1D SPM Profile
+    return [n - min(profile) for n in profile]
 
 def fixzero2D(profile): #<- Pass 2D SPM Profile
     minimum = np.min(profile.pixels)
@@ -111,52 +67,32 @@ def fixzero2D(profile): #<- Pass 2D SPM Profile
         for x in it:
             x[...] = x - minimum
     return profile
+    
+def averageprofile(profile, outputerror=False):
+    avg, err = profile.mean(0), profile.std(0)
+    return (avg, err) if outputerror else avg
 
-def averageprofile(profile, outputerror = False): #function to take average profile of lines in an spm
-    oneDprofile = np.flip(profile.mean(axis = 0))
-    oneDerror = np.flip(profile.std(axis = 0))
-    if outputerror:
-        return (oneDprofile, oneDerror)
-    else:
-        return oneDprofile
+def derivativeprofile(profile, n=3):
+    return [(profile[i+n] - profile[i-n]) / (2 * n * pixeltonmsf) for i in range(n, len(profile) - n)]
 
-def derivativeprofile(profile, n=3): #function that takes the average profile (one line) and returns the derivative, calculated n points away
-    derivativelist = []
-    i = n
-    while i < len(profile)-n:
-        derivative = (profile[i+3] - profile[i-3])/(n*2*pixeltonmsf)
-        derivativelist.append(derivative)
-        i += 1
-    return derivativelist
+def wallanglecalc(profile, start, end, bp=0.10, tp=0.90):
+    segment = profile[start:end+1]
+    min_val, max_val = min(segment), max(segment)
+    p10, p90 = bp * (max_val - min_val) + min_val, tp * (max_val - min_val) + min_val
+    sorted_segment = sorted(segment + [p10, p90])
+    p10_idx, p90_idx = sorted_segment.index(p10) - 1, sorted_segment.index(p90) - 2
+    opp, adj = abs(sorted_segment[p90_idx] - sorted_segment[p10_idx]), abs(p90_idx - p10_idx)
+    return 57.2958 * abs(m.atan(opp / (pixeltonmsf * adj)))
 
-def wallanglecalc(profile, startingindex, endingindex, bp = 0.10, tp = 0.90):
-    pillar10percentvalue = bp * (max(profile[startingindex:(endingindex+1)])-min(profile[startingindex:(endingindex+1)])) + min(profile[startingindex:endingindex+1])
-    pillar90percentvalue = tp * (max(profile[startingindex:(endingindex+1)])-min(profile[startingindex:(endingindex+1)])) + min(profile[startingindex:endingindex+1])
-    insert = list(profile[startingindex:endingindex]) + [pillar10percentvalue] + [pillar90percentvalue]
-    insert.sort()
-    sortedprofile = profile[startingindex:endingindex]
-    sortedprofile.sort()
-    pillar10percentindex = insert.index(pillar10percentvalue) - 1
-    pillar90percentindex = insert.index(pillar90percentvalue) - 2
-    opposite = abs(sortedprofile[pillar90percentindex] - sortedprofile[pillar10percentindex])
-    adjacent = abs(pillar90percentindex - pillar10percentindex)
-    angle = 57.2958*abs(m.atan(opposite/(pixeltonmsf*adjacent)))
-    return angle
-
-def pillarwidthcalc(profile, startingindex, endingindex, height = 0.10): #Calculates pillar with at height input, default at 10% height, always goes one pixel to right
-    widthmeasurepoint = (height * (max(profile[startingindex:endingindex])-(0.5*(profile[startingindex]+profile[endingindex])))) + min(profile[startingindex:endingindex])
-    peakcenterindex = profile[startingindex:endingindex].index(max(profile[startingindex:endingindex]))
-    firstwall = profile[startingindex:endingindex][:peakcenterindex]
-    secondwall = profile[startingindex:endingindex][peakcenterindex:]
-    insertfirstwall = firstwall + [widthmeasurepoint]
-    insertsecondwall = secondwall + [widthmeasurepoint]
-    insertfirstwall.sort()
-    insertsecondwall.sort()
-    insertsecondwall.reverse()
-    firstwallheightindex = insertfirstwall.index(widthmeasurepoint) - 1
-    secondwallheightindex = insertsecondwall.index(widthmeasurepoint) - 1
-    pillarwidth = (secondwallheightindex+len(firstwall)-firstwallheightindex)*pixeltonmsf
-    return pillarwidth
+def pillarwidthcalc(profile, start, end, height=0.10):
+    segment = profile[start:end]
+    peak = max(segment)
+    widthpoint = height * (peak - 0.5 * (profile[start] + profile[end])) + min(segment)
+    peak_idx = segment.index(peak)
+    firstwall, secondwall = segment[:peak_idx], segment[peak_idx:]
+    firstwallheight = sorted(firstwall + [widthpoint]).index(widthpoint) - 1
+    secondwallheight = len(secondwall) - sorted(secondwall + [widthpoint], reverse=True).index(widthpoint) - 1
+    return (secondwallheight + len(firstwall) - firstwallheight) * pixeltonmsf
 
 def assign_pillar_data(data, column_suffix, step=1):
     for i in range(0, npillars * 2, step):
@@ -194,16 +130,13 @@ def line_edge(profile):
 if __name__ == "__main__":
     siteindex, siteindexes, pillarheights, pillardvangles, pillarangles, pillarwidths, dutycycle, error = 0, [], [], [], [], [], [], []
 
-    i = 0
-    while i<npillars*2:
+    for i in range(npillars * 2):
         pillarheights.append([])
         pillardvangles.append([])
         pillarangles.append([])
         if i % 2 == 0:
             pillarwidths.append([])
-        if i % 2 == 0:
             dutycycle.append([])
-        i += 1
 
     for file in os.listdir(directory):
         filename = os.fsdecode(file)
@@ -271,31 +204,19 @@ if __name__ == "__main__":
                     width = pillarwidthcalc(l, p[i], p[i + 2])
                     pillarwidths[i // 2].append(width)
                     dutycycle[i // 2].append(width / period)
-            # i = 0
-            # while i < npillars*2:
-            #     pillarheights[i].append(abs(l[p[i+1]]-l[p[i]]))
-            #     pillardvangles[i].append(57.2958*m.atan(max(d[p[i]:p[i+1]])))
-            #     pillarangles[i].append(wallanglecalc(l,p[i],p[i+1]))
-            #     if i % 2 == 0:
-            #         pillarwidths[int(i/2)].append(pillarwidthcalc(l, p[i], p[i+2]))
-            #     if i % 2 == 0:
-            #         dutycycle[int(i/2)].append((pillarwidthcalc(l, p[i], p[i+2], height = 0.5))/period)
-            #     i += 1
 
-            error.append(sum(averageprofileerror)/len(averageprofileerror))
+            error.append(np.mean(averageprofileerror))
             siteindexes.append(siteindex)
             siteindex += 1
 
     foldername = str(os.getcwd()).split('\\')[-1]
     df = pd.DataFrame({"Sample Index": siteindexes})
-
     assign_pillar_data(pillarheights, 'Height')
     assign_pillar_data(pillardvangles, 'Derivative Angle')
     assign_pillar_data(pillarangles, 'Wall Angle')
     assign_pillar_data(pillarwidths, 'Width', step=2)
     assign_pillar_data(dutycycle, 'Duty Cycle', step=2)
     df['Average Error'] = error
-
     df.style
     writer = pd.ExcelWriter(f"{foldername} Pillar Characterization.xlsx", engine='xlsxwriter')
     df.to_excel(writer, sheet_name= "Pillars", index=False)
