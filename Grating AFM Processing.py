@@ -8,15 +8,16 @@ import copy
 import os
 from IPython.display import display
 import math as m
+from scipy.optimize import curve_fit
 
 directory_in_str = str(os.getcwd())
 directory = os.fsencode(directory_in_str)
 
 #globals
-lengthx = 1000 #<- length of line in nanometers
-npillars = 1 #<- number of pillars to look for in scan
-pixels = 1024 #<- pixels in a horizontal line
-period = 574.7 # <- period of grating in nm
+lengthx = int(input('Length of image in nm: ') or 1000) #<- length of line in nanometers
+npillars = int(input('Number of full pillars: ') or 1) #<- number of pillars to look for in scan
+pixels = int(input('Pixels per horizontal line: ') or 1024) #<- pixels in a horizontal line
+period = int(input('Period of grating: ') or 574.7) # <- period of grating in nm
 periodpixellength = int(pixels/lengthx*period)
 pixeltonmsf = lengthx/pixels
 
@@ -101,8 +102,7 @@ def flatten(profile, npillars, flatline1delta = 0, flatline2delta = 0): #<- Flat
 
 def fixzero1D(profile): #<- Pass 1D list
     minimum = min(profile)
-    difference = 0 - minimum
-    profile = list(map(lambda n: n + difference, profile))
+    profile = list(map(lambda n: n - minimum, profile))
     return profile
 
 def fixzero2D(profile): #<- Pass 2D SPM Profile
@@ -119,7 +119,6 @@ def averageprofile(profile, outputerror = False): #function to take average prof
         return (oneDprofile, oneDerror)
     else:
         return oneDprofile
-
 
 def derivativeprofile(profile, n=3): #function that takes the average profile (one line) and returns the derivative, calculated n points away
     derivativelist = []
@@ -159,24 +158,41 @@ def pillarwidthcalc(profile, startingindex, endingindex, height = 0.10): #Calcul
     pillarwidth = (secondwallheightindex+len(firstwall)-firstwallheightindex)*pixeltonmsf
     return pillarwidth
 
+def assign_pillar_data(data, column_suffix, step=1):
+    for i in range(0, npillars * 2, step):
+        side = 'Left' if i % 2 == 0 else 'Right'
+        pillarn = i // 2 + 1
+        df[f'Pillar {pillarn} {side} {column_suffix}'] = data[i // step]
+
+def sigmoid(x,a,b,c,x0):
+    y = a + (b-a)/(1+np.exp(-c*(x-x0)))
+    return y
+
+def line_edge(profile):
+    x0s = []
+    for row in profile:
+        rowx0s = []
+        pat = trenchpillarcombiner(row)
+        for i in range(len(pat)-1):
+            segment = row[pat[i]:pat[i+1]]
+            p0 = [max(segment), min(segment),1,len(segment)/2]
+            popt, pcov = curve_fit(sigmoid, range(len(segment)), segment,p0, method='dogbox')
+            x = range(len(segment))
+            y = segment
+            y2 = sigmoid(range(len(segment)), *popt)
+            plt.plot(x, y)
+            plt.plot(x, y2)
+            plt.savefig('test')
+            mpl.pyplot.close()
+            rowx0s.append(popt[3])
+            print(i)
+        x0s.append(rowx0s)
+    print(row)
+    print(x0s)
+    return x0s
 
 if __name__ == "__main__":
-    siteindex = 0
-    siteindexes = []
-    
-    #height outputs
-    maxpillarheights = []
-    pillarheights = []
-
-    #derivative angle outputs
-    pillardvangles = []
-
-    #wall angle calculated at 10% to 90%
-    pillarangles = []
-    
-    #pillarwidth
-    pillarwidths = []
-    dutycycle = []
+    siteindex, siteindexes, pillarheights, pillardvangles, pillarangles, pillarwidths, dutycycle, error = 0, [], [], [], [], [], [], []
 
     i = 0
     while i<npillars*2:
@@ -196,28 +212,41 @@ if __name__ == "__main__":
             topo = Scan.get_channel()
             topoE = copy.deepcopy(topo) #doesn't modify original file, remove to make edits permanent
 
-            #Section to modify 2D Data
+            #modify 2D Data
             topoE = removestreaks(topoE)
             topoE = flatten(topoE, npillars)
             topoE = fixzero2D(topoE)
 
-            #Section to plot 2D profile, comment out if not using
+            #plot 2D profile
             fig,ax = plt.subplots()
             ax.imshow(topoE.pixels)
             plt.savefig(f'{filename.split('.')[0]} {filename.split('.')[1]}.png')
             mpl.pyplot.close()
 
-            #Section to modify average profile
+            #plot 2D line edge
+            # print(filename)
+            # le = line_edge(topoE.pixels)
+
+            #modify 1D average profile
             averageprofileoutput = averageprofile(topoE.pixels, outputerror = True)
             averageprofilelist = fixzero1D(averageprofileoutput[0])
+            averageprofileerror = averageprofileoutput[1]
             derivativeprofilelist = derivativeprofile(averageprofilelist)
 
-            #Section to plot average profile, comment out if not using
+            #Section to plot 1D average profile
             x = np.linspace(0,len(topoE.pixels[0]),len(topoE.pixels[0]))
             y = list(averageprofilelist)
             fig,ax  = plt.subplots()
             ax.plot(x, y, linewidth=2.0)
             plt.savefig(f'{filename.split('.')[0]} {filename.split('.')[1]} Average Profile.png')
+            mpl.pyplot.close()
+
+            #Section to plot 1D error profile
+            x = np.linspace(0,len(topoE.pixels[0]),len(topoE.pixels[0]))
+            y = list(averageprofileerror)
+            fig,ax  = plt.subplots()
+            ax.plot(x, y, linewidth=2.0)
+            plt.savefig(f'{filename.split('.')[0]} {filename.split('.')[1]} Average Profile Error.png')
             mpl.pyplot.close()
 
             #Section to write average profile to excel
@@ -230,75 +259,42 @@ if __name__ == "__main__":
             #Section to calculate important quantities
             l = list(averageprofilelist)
             d = list(map(lambda n: abs(n), derivativeprofilelist))
-            maxpillarheights.append(max(l) - min(l))
             importantpoints = trenchpillarcombiner(l)
             p = importantpoints
-            
-            i = 0
-            while i < npillars*2:
-                pillarheights[i].append(abs(l[p[i+1]]-l[p[i]]))
-                pillardvangles[i].append(57.2958*m.atan(max(d[p[i]:p[i+1]])))
-                pillarangles[i].append(wallanglecalc(l,p[i],p[i+1]))
-                if i % 2 == 0:
-                    pillarwidths[int(i/2)].append(pillarwidthcalc(l, p[i], p[i+2]))
-                if i % 2 == 0:
-                    dutycycle[int(i/2)].append((pillarwidthcalc(l, p[i], p[i+2], height = 0.5))/period)
-                i += 1
 
+            for i in range(npillars * 2):
+                pillarheights[i].append(abs(l[p[i + 1]] - l[p[i]]))
+                pillardvangles[i].append(57.2958 * m.atan(max(d[p[i]:p[i + 1]])))
+                pillarangles[i].append(wallanglecalc(l, p[i], p[i + 1]))
+                
+                if i % 2 == 0:
+                    width = pillarwidthcalc(l, p[i], p[i + 2])
+                    pillarwidths[i // 2].append(width)
+                    dutycycle[i // 2].append(width / period)
+            # i = 0
+            # while i < npillars*2:
+            #     pillarheights[i].append(abs(l[p[i+1]]-l[p[i]]))
+            #     pillardvangles[i].append(57.2958*m.atan(max(d[p[i]:p[i+1]])))
+            #     pillarangles[i].append(wallanglecalc(l,p[i],p[i+1]))
+            #     if i % 2 == 0:
+            #         pillarwidths[int(i/2)].append(pillarwidthcalc(l, p[i], p[i+2]))
+            #     if i % 2 == 0:
+            #         dutycycle[int(i/2)].append((pillarwidthcalc(l, p[i], p[i+2], height = 0.5))/period)
+            #     i += 1
+
+            error.append(sum(averageprofileerror)/len(averageprofileerror))
             siteindexes.append(siteindex)
             siteindex += 1
 
     foldername = str(os.getcwd()).split('\\')[-1]
     df = pd.DataFrame({"Sample Index": siteindexes})
-    
-    df['Max Pillar Height (nm)'] = maxpillarheights
-    
-    i = 0
-    while i < npillars*2:
-        if i % 2 == 0:
-            side = 'Left'
-            pillarn = int(i/2 + 1)
-        else:
-            side = 'Right'
-            pillarn = int((i-1)/2+1)
-        df[f'Pillar {pillarn} {side} Height'] = pillarheights[i]
-        i += 1
 
-    i = 0
-    while i < npillars*2:
-        if i % 2 == 0:
-            side = 'Left'
-            pillarn = int(i/2 + 1)
-        else:
-            side = 'Right'
-            pillarn = int((i-1)/2+1)
-        df[f'Pillar {pillarn} {side} Derivative Angle'] = pillardvangles[i]
-        i += 1
-        
-    i = 0
-    while i < npillars*2:
-        if i % 2 == 0:
-            side = 'Left'
-            pillarn = int(i/2 + 1)
-        else:
-            side = 'Right'
-            pillarn = int((i-1)/2+1)
-        df[f'Pillar {pillarn} {side} Wall Angle'] = pillarangles[i]
-        i += 1
-        
-    i = 0
-    while i < npillars*2:
-        if i % 2 == 0:
-            pillarn = int(i/2 + 1)
-            df[f'Pillar {pillarn} Width'] = pillarwidths[int(i/2)]
-        i += 1
-
-    i = 0
-    while i < npillars*2:
-        if i % 2 == 0:
-            pillarn = int(i/2 + 1)
-            df[f'Pillar {pillarn} Duty Cycle'] = dutycycle[int(i/2)]
-        i += 1
+    assign_pillar_data(pillarheights, 'Height')
+    assign_pillar_data(pillardvangles, 'Derivative Angle')
+    assign_pillar_data(pillarangles, 'Wall Angle')
+    assign_pillar_data(pillarwidths, 'Width', step=2)
+    assign_pillar_data(dutycycle, 'Duty Cycle', step=2)
+    df['Average Error'] = error
 
     df.style
     writer = pd.ExcelWriter(f"{foldername} Pillar Characterization.xlsx", engine='xlsxwriter')
