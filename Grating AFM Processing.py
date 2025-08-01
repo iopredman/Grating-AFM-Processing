@@ -16,12 +16,12 @@ directory = os.fsencode(directory_in_str)
 #globals
 check1 = input('specify globals? (y/n)')
 if check1 == 'y':
-    lengthx = int(input('Length of image in nm: ') or 1000) #<- length of line in nanometers
-    npillars = int(input('Number of full pillars: ') or 1) #<- number of pillars to look for in scan
+    lengthx = int(input('Length of image in nm: ') or 1800) #<- length of line in nanometers
+    npillars = int(input('Number of full pillars: ') or 2) #<- number of pillars to look for in scan
     pixels = int(input('Pixels per horizontal line: ') or 1024) #<- pixels in a horizontal line
-    period = int(input('Period of grating: ') or 574.7) # <- period of grating in nm
+    period = int(input('Period of grating: ') or int(574.7)) # <- period of grating in nm
 else:
-    lengthx, npillars, pixels, period = 1000, 1, 1024, 574.7
+    lengthx, npillars, pixels, period = 1800, 2, 512, 574.7
 check2 = input('specify plot outputs? (y/n)')
 if check2 == 'y':
     oneDAcheck = input('Plot 1D Average Line Out? (y/n)')
@@ -185,15 +185,41 @@ if __name__ == "__main__":
             if twoDIcheck == 'y':
                 fig,ax = plt.subplots()
                 if LERcheck == 'y':
-                    x1 = []
-                    x2 = []
+                    # x1 = []
+                    # x2 = []
+                    # for rowx0s in line_edge(topoE.pixels):
+                    #     x1.append(rowx0s[0])
+                    #     x2.append(rowx0s[1])
+                    # y = range(topoE.pixels.shape[0])
+                    # fig,ax  = plt.subplots()
+                    # ax.plot(x1, y, linewidth=1.5, color='red')
+                    # ax.plot(x2, y, linewidth=1.5, color='red')
+
+                    # x_values = []  # List to store all x values dynamically
+                    # for rowx0s in line_edge(topoE.pixels):
+                    #     # Ensure there are enough sublists in x_values to accommodate all x values in rowx0s
+                    #     while len(x_values) < len(rowx0s):
+                    #         x_values.append([])  # Add a new empty list for each new x column
+                    #     # Append each x value to the corresponding sublist
+                    #     for i, x in enumerate(rowx0s):
+                    #         x_values[i].append(x)
+
+                    # y = range(topoE.pixels.shape[0])  # y-axis values
+                    # fig, ax = plt.subplots()
+
+                    # # Plot each x series against y
+                    # for x in x_values:
+                    #     ax.plot(x, y, linewidth=1.5, color='red')    
+                    x_values = []
+                    for element in range(len(line_edge(topoE.pixels)[0])):
+                        x_values.append([])
                     for rowx0s in line_edge(topoE.pixels):
-                        x1.append(rowx0s[0])
-                        x2.append(rowx0s[1])
+                        for i, element in enumerate(rowx0s):
+                            x_values[i].append(element)
                     y = range(topoE.pixels.shape[0])
                     fig,ax  = plt.subplots()
-                    ax.plot(x1, y, linewidth=1.5, color='red')
-                    ax.plot(x2, y, linewidth=1.5, color='red')
+                    for x in x_values:
+                        ax.plot(x, y, linewidth=1.5, color='red')
                 ax.imshow(topoE.pixels)
                 plt.savefig(f'{filename.split('.')[0]} {filename.split('.')[1]}.png')
                 mpl.pyplot.close()
@@ -253,7 +279,7 @@ if __name__ == "__main__":
                 pillarheights[i].append(abs(l[p[i + 1]] - l[p[i]]))
                 pillardvangles[i].append(57.2958 * m.atan(max(d[p[i]:p[i + 1]])))
                 pillarangles[i].append(wallanglecalc(l, p[i], p[i + 1]))
-                # LERs[i].append(3*np.std())
+                LERs[i].append(3*np.std(x_values[i]))
                 if i % 2 == 0:
                     width = pillarwidthcalc(l, p[i], p[i + 2])
                     pillarwidths[i // 2].append(width)
@@ -269,6 +295,7 @@ if __name__ == "__main__":
     assign_pillar_data(pillarheights, 'Height')
     assign_pillar_data(pillardvangles, 'Derivative Angle')
     assign_pillar_data(pillarangles, 'Wall Angle')
+    assign_pillar_data(LERs, 'LER')
     assign_pillar_data(pillarwidths, 'Width', step=2)
     assign_pillar_data(dutycycle, 'Duty Cycle', step=2)
     df['Average Error'] = error
