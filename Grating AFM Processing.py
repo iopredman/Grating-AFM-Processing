@@ -14,10 +14,22 @@ directory_in_str = str(os.getcwd())
 directory = os.fsencode(directory_in_str)
 
 #globals
-lengthx = int(input('Length of image in nm: ') or 1000) #<- length of line in nanometers
-npillars = int(input('Number of full pillars: ') or 1) #<- number of pillars to look for in scan
-pixels = int(input('Pixels per horizontal line: ') or 1024) #<- pixels in a horizontal line
-period = int(input('Period of grating: ') or 574.7) # <- period of grating in nm
+check1 = input('specify globals? (y/n)')
+if check1 == 'y':
+    lengthx = int(input('Length of image in nm: ') or 1000) #<- length of line in nanometers
+    npillars = int(input('Number of full pillars: ') or 1) #<- number of pillars to look for in scan
+    pixels = int(input('Pixels per horizontal line: ') or 1024) #<- pixels in a horizontal line
+    period = int(input('Period of grating: ') or 574.7) # <- period of grating in nm
+else:
+    lengthx, npillars, pixels, period = 1000, 1, 1024, 574.7
+check2 = input('specify plot outputs? (y/n)')
+if check2 == 'y':
+    oneDAcheck = input('Plot 1D Average Line Out? (y/n)')
+    oneDEcheck = input('Plot 1D Average Error? (y/n)')
+    twoDIcheck = input('Plot 2D image? (y/n)')
+    LERcheck = input('Plot Line Edge Roughness? (y/n)')
+else:
+    oneDAcheck, oneDEcheck, twoDIcheck, LERcheck = 'y','y','y','y'
 periodpixellength = int(pixels/lengthx*period)
 pixeltonmsf = lengthx/pixels
 
@@ -106,38 +118,57 @@ def sigmoid(x,a,b,c,x0):
 
 def line_edge(profile):
     x0s = []
-    for row in profile:
+    for badrow, row in enumerate(profile):
         rowx0s = []
         pat = trenchpillarcombiner(row)
         for i in range(len(pat)-1):
             segment = row[pat[i]:pat[i+1]]
-            p0 = [max(segment), min(segment),1,len(segment)/2]
-            popt, pcov = curve_fit(sigmoid, range(len(segment)), segment,p0, method='dogbox')
-            x = range(len(segment))
-            y = segment
-            y2 = sigmoid(range(len(segment)), *popt)
-            plt.plot(x, y)
-            plt.plot(x, y2)
-            plt.savefig('test')
-            mpl.pyplot.close()
+            guesses = [
+                [max(segment), min(segment),0.1,pat[i]+(pat[i+1]-pat[i])/2],
+                [min(segment), max(segment),0.1,pat[i]+(pat[i+1]-pat[i])/2],
+                [min(segment), max(segment),0.1,pat[i]+(pat[i+1]-pat[i])/1.5],
+                [max(segment), min(segment),0.1,pat[i]+(pat[i+1]-pat[i])/1.5]
+                ]
+            bounds = (
+                [-1000, -1000, 0, 0],
+                [1000, 1000, 1, len(row)]
+            )
+            for guess in guesses:
+                try:
+                    popt, pcov = curve_fit(sigmoid, list(range(pat[i],pat[i+1])), segment, guess, bounds=bounds)
+                    break
+                except:
+                    if guess == guesses[-1]:
+                        x = range(len(segment))
+                        y = segment
+                        y2 = sigmoid(list(range(pat[i],pat[i+1])), *popt)
+                        plt.plot(x, y)
+                        plt.plot(x, y2)
+                        plt.savefig(f'Failed fit at {filename.split('.')[0]} {filename.split('.')[1]} row {badrow}')
+                        mpl.pyplot.close()
+                        # raise Exception(f'Failed at {filename}, row {row}')
+                    pass
             rowx0s.append(popt[3])
-            print(i)
         x0s.append(rowx0s)
-    print(row)
-    print(x0s)
     return x0s
 
 if __name__ == "__main__":
-    siteindex, siteindexes, pillarheights, pillardvangles, pillarangles, pillarwidths, dutycycle, error = 0, [], [], [], [], [], [], []
+    filestobeprocessed, siteindex, siteindexes, pillarheights, pillardvangles, pillarangles, pillarwidths, dutycycle, error, LERs = 0, 0, [], [], [], [], [], [], [], []
 
     for i in range(npillars * 2):
         pillarheights.append([])
         pillardvangles.append([])
         pillarangles.append([])
+        LERs.append([])
         if i % 2 == 0:
             pillarwidths.append([])
             dutycycle.append([])
 
+    for file in os.listdir(directory):
+        filename = os.fsdecode(file)
+        if filename.endswith(".spm"):
+            filestobeprocessed += 1
+    
     for file in os.listdir(directory):
         filename = os.fsdecode(file)
         if filename.endswith(".spm"):
@@ -151,14 +182,35 @@ if __name__ == "__main__":
             topoE = fixzero2D(topoE)
 
             #plot 2D profile
-            fig,ax = plt.subplots()
-            ax.imshow(topoE.pixels)
-            plt.savefig(f'{filename.split('.')[0]} {filename.split('.')[1]}.png')
-            mpl.pyplot.close()
+            if twoDIcheck == 'y':
+                fig,ax = plt.subplots()
+                if LERcheck == 'y':
+                    x1 = []
+                    x2 = []
+                    for rowx0s in line_edge(topoE.pixels):
+                        x1.append(rowx0s[0])
+                        x2.append(rowx0s[1])
+                    y = range(topoE.pixels.shape[0])
+                    fig,ax  = plt.subplots()
+                    ax.plot(x1, y, linewidth=1.5, color='red')
+                    ax.plot(x2, y, linewidth=1.5, color='red')
+                ax.imshow(topoE.pixels)
+                plt.savefig(f'{filename.split('.')[0]} {filename.split('.')[1]}.png')
+                mpl.pyplot.close()
 
             #plot 2D line edge
-            # print(filename)
-            # le = line_edge(topoE.pixels)
+            if LERcheck == 'y':
+                x1 = []
+                x2 = []
+                for rowx0s in line_edge(topoE.pixels):
+                    x1.append(rowx0s[0])
+                    x2.append(rowx0s[1])
+                y = range(topoE.pixels.shape[0])
+                fig,ax  = plt.subplots()
+                ax.plot(x1, y, linewidth=2.0)
+                ax.plot(x2, y, linewidth=2.0)
+                plt.savefig(f'{filename.split('.')[0]} {filename.split('.')[1]} Line Edge Profile.png')
+                mpl.pyplot.close()
 
             #modify 1D average profile
             averageprofileoutput = averageprofile(topoE.pixels, outputerror = True)
@@ -167,20 +219,22 @@ if __name__ == "__main__":
             derivativeprofilelist = derivativeprofile(averageprofilelist)
 
             #Section to plot 1D average profile
-            x = np.linspace(0,len(topoE.pixels[0]),len(topoE.pixels[0]))
-            y = list(averageprofilelist)
-            fig,ax  = plt.subplots()
-            ax.plot(x, y, linewidth=2.0)
-            plt.savefig(f'{filename.split('.')[0]} {filename.split('.')[1]} Average Profile.png')
-            mpl.pyplot.close()
+            if oneDAcheck == 'y':
+                x = np.linspace(0,len(topoE.pixels[0]),len(topoE.pixels[0]))
+                y = list(averageprofilelist)
+                fig,ax  = plt.subplots()
+                ax.plot(x, y, linewidth=2.0)
+                plt.savefig(f'{filename.split('.')[0]} {filename.split('.')[1]} Average Profile.png')
+                mpl.pyplot.close()
 
             #Section to plot 1D error profile
-            x = np.linspace(0,len(topoE.pixels[0]),len(topoE.pixels[0]))
-            y = list(averageprofileerror)
-            fig,ax  = plt.subplots()
-            ax.plot(x, y, linewidth=2.0)
-            plt.savefig(f'{filename.split('.')[0]} {filename.split('.')[1]} Average Profile Error.png')
-            mpl.pyplot.close()
+            if oneDEcheck == 'y':
+                x = np.linspace(0,len(topoE.pixels[0]),len(topoE.pixels[0]))
+                y = list(averageprofileerror)
+                fig,ax  = plt.subplots()
+                ax.plot(x, y, linewidth=2.0)
+                plt.savefig(f'{filename.split('.')[0]} {filename.split('.')[1]} Average Profile Error.png')
+                mpl.pyplot.close()
 
             #Section to write average profile to excel
             df = pd.DataFrame(
@@ -199,7 +253,7 @@ if __name__ == "__main__":
                 pillarheights[i].append(abs(l[p[i + 1]] - l[p[i]]))
                 pillardvangles[i].append(57.2958 * m.atan(max(d[p[i]:p[i + 1]])))
                 pillarangles[i].append(wallanglecalc(l, p[i], p[i + 1]))
-                
+                # LERs[i].append(3*np.std())
                 if i % 2 == 0:
                     width = pillarwidthcalc(l, p[i], p[i + 2])
                     pillarwidths[i // 2].append(width)
@@ -207,6 +261,7 @@ if __name__ == "__main__":
 
             error.append(np.mean(averageprofileerror))
             siteindexes.append(siteindex)
+            print(f'Processed Files: {siteindex+1}/{filestobeprocessed}')
             siteindex += 1
 
     foldername = str(os.getcwd()).split('\\')[-1]
@@ -221,3 +276,6 @@ if __name__ == "__main__":
     writer = pd.ExcelWriter(f"{foldername} Pillar Characterization.xlsx", engine='xlsxwriter')
     df.to_excel(writer, sheet_name= "Pillars", index=False)
     writer._save()
+
+    print('Processing Completed')
+    input('Press enter to close')
